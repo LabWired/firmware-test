@@ -76,7 +76,7 @@ def render(result, uart_tail, report_url):
         body += ["<details><summary>UART output (tail)</summary>", "", fence, uart_tail.rstrip(), fence, "", "</details>", ""]
 
     if report_url:
-        body.append(f"[Full report]({report_url}) · listed in the [LabWired gallery](https://app.labwired.com/ci) — set `gallery: false` to opt out.")
+        body.append(f"[Full report]({report_url}) · listed in the [LabWired gallery](https://app.labwired.com/ci/gallery) — set `gallery: false` to opt out.")
     return "\n".join(body)
 
 

@@ -33,7 +33,7 @@ runner; LabWired hosts the report.
 | `system` | `""` | System manifest YAML, if not set inside the script. |
 | `output_dir` | `out/artifacts` | Where `result.json`, `uart.log` and `junit.xml` land. |
 | `version` | `v0.18.0` | LabWired CLI release tag. |
-| `gallery` | `true` | List public repos at https://app.labwired.com/ci. Set `false` to stay unlisted. |
+| `gallery` | `true` | List public repos at https://app.labwired.com/ci/gallery. Set `false` to stay unlisted. |
 | `comment` | `true` | Post a results comment on pull requests. |
 
 ## Outputs

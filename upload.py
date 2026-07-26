@@ -100,19 +100,10 @@ def run():
         "status": status,
         "tests_passed": passed,
         "tests_failed": failed,
-        # The CLI reports cycles/instructions, not wall-clock time. There is no
-        # real duration to send yet, so this is a placeholder — do not derive
-        # it from cycles, that would be a fabricated number.
-        "duration_ms": 0,
-        # Not present in result.json. Getting this right needs a lookup into
-        # the system manifest (board/MCU target), which is follow-up work —
-        # send null rather than guessing from a file path.
-        "board": None,
-        # GITHUB_REPOSITORY ("owner/repo") is not a description — it is the
-        # same string the server already has from the verified identity, so
-        # sending it back as "description" is junk a future phase could not
-        # tell apart from a real one. Send null instead, like board.
-        "description": None,
+        # No duration/board/description: the CLI reports cycles and
+        # instructions, not wall-clock time, and the board lives in the system
+        # manifest rather than result.json. The server dropped those columns
+        # rather than store perpetual nulls.
         "cli_version": os.environ.get("LABWIRED_CLI_VERSION") or None,
         "gallery": os.environ.get("LABWIRED_GALLERY", "true") != "false",
     }
