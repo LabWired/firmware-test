@@ -140,7 +140,15 @@ def run():
     request = urllib.request.Request(
         f"{api_url}/v1/ci/runs",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            # Without an explicit User-Agent, urllib sends "Python-urllib/x.y",
+            # which Cloudflare's WAF blocks as a bot user agent (error code
+            # 1010) before the request ever reaches the Worker. This was the
+            # cause of every real upload silently 403'ing.
+            "User-Agent": "labwired-action/upload.py",
+        },
         method="POST",
     )
     try:
