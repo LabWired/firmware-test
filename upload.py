@@ -138,7 +138,7 @@ def run():
             # which Cloudflare's WAF blocks as a bot user agent (error code
             # 1010) before the request ever reaches the Worker. This was the
             # cause of every real upload silently 403'ing.
-            "User-Agent": "labwired-action/upload.py",
+            "User-Agent": "labwired-firmware-test/upload.py",
         },
         method="POST",
     )

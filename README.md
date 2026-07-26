@@ -16,7 +16,7 @@ jobs:
       pull-requests: write   # results comment
     steps:
       - uses: actions/checkout@v4
-      - uses: w1ne/labwired-action@v1
+      - uses: labwired/firmware-test@v1
         with:
           script: tests/labwired.yml
 ```
