@@ -28,7 +28,7 @@ inputs:
   version:
     description: "LabWired CLI release tag to install."
     required: false
-    default: "v0.19.2"
+    default: "v0.20.0"
   gallery:
     description: >
       List this repository in the public LabWired gallery at
