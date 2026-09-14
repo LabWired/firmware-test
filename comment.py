@@ -2,9 +2,12 @@
 """Write the job summary and upsert a single PR comment for this run."""
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
+
+import verdict
 
 MARKER = "<!-- labwired-report -->"
 UART_TAIL_LINES = 20
@@ -48,10 +51,59 @@ def _assertion_summary(assertion, limit=120):
     return text
 
 
-def render(result, uart_tail, report_url):
-    status = result.get("status", "unknown")
-    icon = {"pass": "✅", "fail": "❌", "error": "⚠️"}.get(status, "❔")
+def _cell(text, limit=120):
+    """Table-cell text from the design (a part's ref, value, or the importer's
+    reason). A schematic in a pull request is the author's to write, and this
+    comment is posted with the maintainer's token, so markdown and HTML in it
+    are escaped rather than rendered."""
+    text = " ".join(str(text).split())
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return re.sub(r"([\\`*_\[\]<>|~&!#])", r"\\\1", text)
+
+
+def display_status(result, run_verdict=None):
+    """What the header and the `status` output say: the verdict when there is a
+    result to judge, `unknown` when result.json is missing or has no status."""
+    if "status" not in result:
+        return "unknown"
+    return run_verdict["verdict"] if run_verdict else result["status"]
+
+
+def allow_unproven_from_env():
+    return os.environ.get("LABWIRED_ALLOW_UNPROVEN", "false").strip().lower() == "true"
+
+
+def _unproven_section(run_verdict, allow_unproven):
+    consequence = (
+        "`allow_unproven` is set, so this alone does not fail the job."
+        if allow_unproven
+        else "The job fails on it; set `allow_unproven: true` to accept an unproven run."
+    )
+    body = [
+        "The simulation finished, but the twin it ran on is not the design, so this run proves "
+        f"nothing about the design. {consequence}",
+        "",
+    ]
+    if "design_only_parts" in run_verdict["reasons"]:
+        body += [
+            "| Design-only part | Value | Why it is not on the twin |",
+            "| --- | --- | --- |",
+        ]
+        for part in run_verdict["design_only"]:
+            body.append(f"| {_cell(part['ref'])} | {_cell(part['value']) or '—'} | {_cell(part['reason'])} |")
+        body.append("")
+    if "nothing_asserted" in run_verdict["reasons"]:
+        body += ["The run passed without asserting anything, so nothing was asked of the imported circuit.", ""]
+    return body
+
+
+def render(result, uart_tail, report_url, run_verdict=None, allow_unproven=False):
+    status = display_status(result, run_verdict)
+    icon = {"pass": "✅", "fail": "❌", "error": "⚠️", "unproven": "🟡"}.get(status, "❔")
     body = [MARKER, f"### {icon} LabWired simulation — {status}", ""]
+    if status == "unproven":
+        body += _unproven_section(run_verdict, allow_unproven)
 
     assertions = result.get("assertions")
     assertions = assertions if isinstance(assertions, list) else []
@@ -138,14 +190,21 @@ def run():
     output_dir = os.environ.get("LABWIRED_OUTPUT_DIR", "out/artifacts")
     result = read_json(os.path.join(output_dir, "result.json"))
     uart_tail = read_tail(os.path.join(output_dir, "uart.log"), UART_TAIL_LINES)
-    body = render(result, uart_tail, os.environ.get("LABWIRED_REPORT_URL", ""))
+    run_verdict = verdict.verdict_from_env(result)
+    body = render(
+        result,
+        uart_tail,
+        os.environ.get("LABWIRED_REPORT_URL", ""),
+        run_verdict,
+        allow_unproven_from_env(),
+    )
 
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as fh:
             fh.write(body + "\n")
 
-    status_out = result.get("status", "unknown")
+    status_out = display_status(result, run_verdict)
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a", encoding="utf-8") as fh:

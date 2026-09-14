@@ -39,6 +39,15 @@ inputs:
     description: "Post a results comment on the pull request."
     required: false
     default: "true"
+  allow_unproven:
+    description: >
+      Let an unproven run pass the job. A run is unproven when its twin was
+      imported (for example from KiCad) and parts of the design are not on it,
+      or when such a run asserted nothing. By default that fails the job with
+      exit code 3. Set to "true" to let the CLI's own exit code decide; the
+      status output, summary, comment and gallery still say unproven.
+    required: false
+    default: "false"
   api-url:
     description: "LabWired API base URL. Override only for testing."
     required: false
@@ -46,7 +55,10 @@ inputs:
 
 outputs:
   status:
-    description: "pass, fail, error, or unknown."
+    description: >
+      pass, fail, error, unproven, or unknown. unproven: the run finished on an
+      imported twin that is missing parts of the design (or asserted nothing),
+      so it proves nothing about the design.
     value: ${{ steps.summary.outputs.status }}
   report_url:
     description: "Hosted report URL, empty if the upload did not happen."
@@ -178,15 +190,19 @@ runs:
         LABWIRED_OUTPUT_DIR: ${{ inputs.output_dir }}
         LABWIRED_REPORT_URL: ${{ steps.upload.outputs.report_url }}
         LABWIRED_COMMENT: ${{ inputs.comment }}
+        LABWIRED_SCRIPT: ${{ inputs.script }}
+        LABWIRED_SYSTEM: ${{ inputs.system }}
+        LABWIRED_ALLOW_UNPROVEN: ${{ inputs.allow_unproven }}
         GITHUB_TOKEN: ${{ github.token }}
       run: python3 "${{ github.action_path }}/comment.py"
 
-    - name: Fail if the LabWired tests failed
+    # Exits with the CLI's code, or 3 when the run is unproven (see verdict.py).
+    - name: Fail if the LabWired tests failed or are unproven
       shell: bash
-      run: |
-        set -euo pipefail
-        code="${{ steps.run.outputs.exit_code }}"
-        if [ "$code" != "0" ]; then
-          echo "::error::LabWired tests failed (exit code $code)."
-          exit "$code"
-        fi
+      env:
+        LABWIRED_EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+        LABWIRED_OUTPUT_DIR: ${{ inputs.output_dir }}
+        LABWIRED_SCRIPT: ${{ inputs.script }}
+        LABWIRED_SYSTEM: ${{ inputs.system }}
+        LABWIRED_ALLOW_UNPROVEN: ${{ inputs.allow_unproven }}
+      run: python3 "${{ github.action_path }}/verdict.py"
