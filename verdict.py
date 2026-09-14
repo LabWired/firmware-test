@@ -36,7 +36,9 @@ COVERAGE_LINE = re.compile(
     r"(?:\A|(?<=[\n\r\u2028\u2029]))coverage:[ \t]*(\{[^\n\r\u2028\u2029]*\})[ \t]*(?=[\n\r\u2028\u2029]|\Z)"
 )
 SYSTEM_LINE = re.compile(r"^[ \t]*system:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
-EXIT_UNPROVEN = 3
+# Not 3: the CLI already uses 0-3 (pass, assertion fail, config error, runtime
+# error), and an incomplete twin must never read as a simulator crash.
+EXIT_UNPROVEN = 4
 
 
 def read_json(path):
@@ -217,7 +219,7 @@ def _exit_code_from_env():
 def main():
     """Final step of the action.
 
-    An unproven run exits 3 whatever the CLI returned, so an incomplete twin is
+    An unproven run exits 4 whatever the CLI returned, so an incomplete twin is
     never a green check. `allow_unproven: true` hands the decision back to the
     CLI's own exit code: a passing run goes green, a failing one stays red. Any
     other verdict exits with the CLI's code.

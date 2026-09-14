@@ -44,7 +44,7 @@ inputs:
       Let an unproven run pass the job. A run is unproven when its twin was
       imported (for example from KiCad) and parts of the design are not on it,
       or when such a run asserted nothing. By default that fails the job with
-      exit code 3. Set to "true" to let the CLI's own exit code decide; the
+      exit code 4 (the CLI uses 0-3). Set to "true" to let the CLI's own exit code decide; the
       status output, summary, comment and gallery still say unproven.
     required: false
     default: "false"
@@ -196,7 +196,7 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
       run: python3 "${{ github.action_path }}/comment.py"
 
-    # Exits with the CLI's code, or 3 when the run is unproven (see verdict.py).
+    # Exits with the CLI's code, or 4 when the run is unproven (see verdict.py).
     - name: Fail if the LabWired tests failed or are unproven
       shell: bash
       env:

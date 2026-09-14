@@ -329,10 +329,16 @@ class VerdictExitCodeTests(unittest.TestCase):
         self.assertEqual(self._main("pass", 0, None, assertions=0)[0], 0)
         self.assertEqual(self._main("fail", 1, None)[0], 1)
 
-    def test_unproven_pass_exits_3_and_names_the_parts(self):
+    def test_unproven_exit_code_is_not_one_the_cli_uses(self):
+        # labwired-cli: 0 pass, 1 assertion fail, 2 config error, 3 runtime
+        # error (core/crates/cli/src/lib.rs). An incomplete twin must never
+        # read as a simulator crash to a script checking the exit code.
+        self.assertNotIn(verdict.EXIT_UNPROVEN, (0, 1, 2, 3))
+
+    def test_unproven_pass_exits_4_and_names_the_parts(self):
         code, out = self._main("pass", 0, COVERAGE)
         self.assertEqual(code, verdict.EXIT_UNPROVEN)
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 4)
         self.assertIn("::error::", out)
         self.assertIn("UNPROVEN", out)
         self.assertIn("U9 (ASIC99-XYZ)", out)
@@ -340,17 +346,17 @@ class VerdictExitCodeTests(unittest.TestCase):
     def test_design_text_cannot_start_a_workflow_command(self):
         forged = {"ref": "U9", "value": "x\n::add-mask::secret", "reason": "100% unknown"}
         code, out = self._main("pass", 0, {**COVERAGE, "design_only": [forged]})
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 4)
         self.assertEqual(len(out.strip().splitlines()), 1)
         self.assertIn("x%0A::add-mask::secret", out)
 
-    def test_nothing_asserted_on_an_imported_twin_exits_3(self):
+    def test_nothing_asserted_on_an_imported_twin_exits_4(self):
         code, out = self._main("pass", 0, NONE_DROPPED, assertions=0)
-        self.assertEqual(code, 3)
+        self.assertEqual(code, 4)
         self.assertIn("asserted nothing", out)
 
-    def test_failure_on_an_incomplete_twin_is_unproven_and_exits_3(self):
-        self.assertEqual(self._main("fail", 1, COVERAGE)[0], 3)
+    def test_failure_on_an_incomplete_twin_is_unproven_and_exits_4(self):
+        self.assertEqual(self._main("fail", 1, COVERAGE)[0], 4)
 
     def test_allow_unproven_hands_the_exit_back_to_the_cli(self):
         code, out = self._main("pass", 0, COVERAGE, allow="true")

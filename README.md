@@ -60,7 +60,7 @@ four verdicts instead of three:
 | `fail` | An assertion failed on a complete twin. |
 | `pass` | Every assertion passed on a complete twin. |
 
-An unproven run fails the job with exit code 3 and an error naming the missing
+An unproven run fails the job with exit code 4 and an error naming the missing
 parts. The summary and pull request comment list them, and the gallery shows
 the run as Unproven. To accept an unproven run while the catalog catches up
 with your design, set `allow_unproven: true`. The job's result then follows
