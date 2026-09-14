@@ -13,6 +13,8 @@ import tarfile
 import urllib.error
 import urllib.request
 
+import verdict
+
 MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 
 
@@ -58,8 +60,10 @@ def build_bundle(output_dir, extra_paths):
         with tarfile.open(fileobj=buf, mode="w:gz") as tar:
             if os.path.isdir(output_dir):
                 tar.add(output_dir, arcname="artifacts")
+            seen = set()
             for path in extra_paths:
-                if path and os.path.isfile(path):
+                if path and os.path.isfile(path) and os.path.realpath(path) not in seen:
+                    seen.add(os.path.realpath(path))
                     tar.add(path, arcname=os.path.join("inputs", os.path.basename(path)))
         return buf.getvalue()
     except (OSError, tarfile.TarError) as exc:
@@ -92,9 +96,10 @@ def run():
     passed = sum(1 for a in assertions if isinstance(a, dict) and a.get("passed") is True)
     failed = sum(1 for a in assertions if isinstance(a, dict) and a.get("passed") is False)
 
-    status = result.get("status")
-    if status not in ("pass", "fail", "error"):
-        status = "error"
+    # The verdict, not the CLI's raw status: a run on an imported twin that is
+    # missing design parts is stored as `unproven`, never as a pass. Anything
+    # the CLI did not report as pass or fail is `error`, as before.
+    status = verdict.verdict_from_env(result)["verdict"]
 
     payload = {
         "status": status,
@@ -121,6 +126,15 @@ def run():
                 os.environ.get("LABWIRED_FIRMWARE", ""),
                 os.environ.get("LABWIRED_SYSTEM", ""),
                 os.environ.get("LABWIRED_SCRIPT", ""),
+                # The manifest the run loaded, also when the script named it
+                # rather than the `system` input. Its coverage line is the only
+                # record of which design parts an unproven run was missing.
+                verdict.system_manifest_path(
+                    result,
+                    os.environ.get("LABWIRED_SCRIPT") or None,
+                    os.environ.get("LABWIRED_SYSTEM") or None,
+                )
+                or "",
             ],
         )
         if bundle and len(bundle) <= MAX_BUNDLE_BYTES:

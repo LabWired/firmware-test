@@ -35,10 +35,39 @@ runner; LabWired hosts the report.
 | `version` | `v0.18.0` | LabWired CLI release tag. |
 | `gallery` | `true` | List public repos at https://app.labwired.com/ci. Set `false` to stay unlisted. |
 | `comment` | `true` | Post a results comment on pull requests. |
+| `allow_unproven` | `false` | Let an [unproven](#unproven-runs) run pass the job. |
 
 ## Outputs
 
-`status` (`pass`/`fail`/`error`), `report_url`, `artifacts_dir`.
+`status` (`pass`/`fail`/`error`/`unproven`), `report_url`, `artifacts_dir`.
+
+## Unproven runs
+
+A twin imported from a schematic contains only the parts LabWired can model.
+The importer lists the rest as design-only, and LabWired's compiler writes that
+list into the system manifest as one `coverage:` line. A run on such a twin can
+pass every assertion and still say nothing about the board you designed: the
+op-amp that is not on the twin explains a missing ADC reading as well as a
+firmware bug does.
+
+So when the manifest carries a coverage record, the action reports one of
+four verdicts instead of three:
+
+| Verdict | When |
+| --- | --- |
+| `error` | The run did not complete. Coverage is not consulted. |
+| `unproven` | The run completed, and design-only parts are still missing from the twin, or it passed without asserting anything. |
+| `fail` | An assertion failed on a complete twin. |
+| `pass` | Every assertion passed on a complete twin. |
+
+An unproven run fails the job with exit code 4 and an error naming the missing
+parts. The summary and pull request comment list them, and the gallery shows
+the run as Unproven. To accept an unproven run while the catalog catches up
+with your design, set `allow_unproven: true`. The job's result then follows
+the simulator's exit code, and every report still says `unproven`.
+
+A manifest with no coverage record, which includes every hand-written one, is
+judged exactly as before.
 
 ## Privacy
 
