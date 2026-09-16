@@ -134,7 +134,11 @@ def annotate(run_verdict):
 
 def comment_context():
     """Everything the PR thread API needs, or None when this is not a pull
-    request, commenting is off, or the access token was not mapped in."""
+    request, commenting is off, or the access token was not mapped in.
+
+    Shapes follow the Azure DevOps Git Pull Request Threads REST API 7.1
+    (create thread / update comment), not a guess: see the tests for the
+    request and response fields this relies on."""
     if os.environ.get("LABWIRED_PR_COMMENT", "true").strip().lower() == "false":
         return None
     pr_id = os.environ.get("SYSTEM_PULLREQUEST_PULLREQUESTID", "").strip()

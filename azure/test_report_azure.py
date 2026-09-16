@@ -337,6 +337,44 @@ class PrThreadTests(AdoTestCase):
         self.assertIn("\\| U9 \\|", content)
         self.assertIn("\\`x\\`", content)
 
+    def test_urls_are_quoted_and_requests_are_authorized(self):
+        self.env_for_pr()
+        self.env["SYSTEM_TEAMPROJECT"] = "my project"
+        self.write_result("pass")
+        seen = []
+
+        def fake_urlopen(request, timeout):
+            seen.append(request)
+            if request.method == "GET":
+                return self.Response(b'{"count":0,"value":[]}')
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("/my%20project/_apis/git/repositories/repo-guid/", seen[0].full_url)
+        for request in seen:
+            self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+            self.assertIn("labwired-firmware-test", request.get_header("User-agent"))
+
+    def test_malformed_thread_listing_creates_instead_of_crashing(self):
+        self.env_for_pr()
+        self.write_result("pass")
+        calls = []
+
+        def fake_urlopen(request, timeout):
+            calls.append(request.method)
+            if request.method == "GET":
+                # ADO-shaped but hostile: null entry, no comments, a comment
+                # without an id.
+                return self.Response(b'{"count":3,"value":[null,{"id":1},{"id":2,"comments":[{}]}]}')
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, ["GET", "POST"])
+
 
 try:
     import yaml  # noqa: F401
