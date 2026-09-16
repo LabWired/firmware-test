@@ -97,7 +97,47 @@ def verdict_main():
     return code
 
 
+def write_summary(result, run_verdict):
+    """The Markdown report, uploaded as the build summary and kept as an
+    artifact. Same renderer as the GitHub action; no hosted-report footer,
+    because Azure DevOps cannot mint a GitHub OIDC token for the upload."""
+    body = comment.render(
+        result,
+        comment.read_tail(os.path.join(output_dir(), "uart.log"), UART_TAIL_LINES),
+        "",
+        run_verdict,
+        allow_unproven(),
+    )
+    os.makedirs(output_dir(), exist_ok=True)
+    path = os.path.join(output_dir(), "labwired-summary.md")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(body + "\n")
+    vso(f"task.uploadsummary]{os.path.abspath(path)}")
+    return body
+
+
+def add_build_tag(status):
+    vso(f"build.addbuildtag]labwired-{status}")
+
+
+def annotate(run_verdict):
+    """Only warnings: the error annotation belongs to the verdict step, which
+    is where the build actually reddens."""
+    if run_verdict["verdict"] != "unproven":
+        return
+    if allow_unproven():
+        warn(
+            f"LabWired run is UNPROVEN ({verdict.explain(run_verdict)}). "
+            "allow_unproven is set, so the CLI's exit code decides."
+        )
+
+
 def report_main():
+    result = read_result()
+    run_verdict = verdict.verdict_from_env(result)
+    write_summary(result, run_verdict)
+    add_build_tag(comment.display_status(result, run_verdict))
+    annotate(run_verdict)
     return 0
 
 

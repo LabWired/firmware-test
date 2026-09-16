@@ -158,5 +158,61 @@ class VerdictGateTests(AdoTestCase):
         self.assertIn("%0A##vso[task.complete", out)
 
 
+class ReportModeTests(AdoTestCase):
+    def test_summary_is_written_and_uploaded(self):
+        self.write_result("pass")
+        code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        summary = Path(self.out, "labwired-summary.md").read_text(encoding="utf-8")
+        self.assertIn(comment.MARKER, summary)
+        self.assertIn("LabWired simulation", summary)
+        self.assertEqual(
+            summary,
+            comment.render(result_json("pass"), "", "", verdict.verdict_of(result_json("pass"))) + "\n",
+        )
+        self.assertIn("##vso[task.uploadsummary]", out)
+        self.assertIn("##vso[build.addbuildtag]labwired-pass", out)
+
+    def test_failure_is_tagged_fail(self):
+        self.write_result("fail")
+        code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("##vso[build.addbuildtag]labwired-fail", out)
+
+    def test_unproven_is_tagged_and_warns_when_allowed(self):
+        system = self.write_system(COVERAGE)
+        self.env["LABWIRED_SYSTEM"] = system
+        self.env["LABWIRED_ALLOW_UNPROVEN"] = "true"
+        self.write_result("pass", system=system)
+        code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("##vso[build.addbuildtag]labwired-unproven", out)
+        self.assertIn("type=warning", out)
+
+    def test_unproven_report_mode_still_exits_zero_when_not_allowed(self):
+        system = self.write_system(COVERAGE)
+        self.env["LABWIRED_SYSTEM"] = system
+        self.write_result("pass", system=system)
+        code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("labwired-unproven", out)
+        self.assertNotIn("type=error", out)
+
+    def test_missing_result_json_still_reports(self):
+        code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("labwired-unknown", out)
+        self.assertIn("##vso[task.uploadsummary]", out)
+
+    def test_uart_tail_is_in_the_summary(self):
+        self.write_result("pass")
+        Path(self.out, "uart.log").write_text("boot ok\nLED ON\n", encoding="utf-8")
+        code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        summary = Path(self.out, "labwired-summary.md").read_text(encoding="utf-8")
+        self.assertIn("UART output (tail)", summary)
+        self.assertIn("LED ON", summary)
+
+
 if __name__ == "__main__":
     unittest.main()
