@@ -71,10 +71,21 @@ judged exactly as before.
 
 ## Azure DevOps Pipelines
 
-Copy the `azure/` directory (four files: the pipeline, `report_azure.py` and
-its two siblings `verdict.py` and `comment.py`) into your repository, set
-`script`, and push. The same pinned CLI release runs on the agent and the run
-reports natively:
+Vendor the reporter into an `azure/` directory in your repository — the
+pipeline, `report_azure.py`, and the two modules it shares with the GitHub
+action (`verdict.py` and `comment.py`):
+
+```bash
+mkdir -p azure
+base=https://raw.githubusercontent.com/LabWired/firmware-test/main
+curl -fsSL -o azure/azure-pipelines.yml "$base/azure/azure-pipelines.yml"
+curl -fsSL -o azure/report_azure.py "$base/azure/report_azure.py"
+curl -fsSL -o azure/verdict.py "$base/verdict.py"
+curl -fsSL -o azure/comment.py "$base/comment.py"
+```
+
+Set `script` in the pipeline and push. The same pinned CLI release runs on the
+agent and the run reports natively:
 
 | Surface | Where | Needs |
 | --- | --- | --- |
@@ -87,7 +98,7 @@ reports natively:
 The build fails on `fail` and `error`, and on `unproven` unless
 `allow_unproven: true` — the same verdicts and exit code 4 as the GitHub
 action. The reporter reuses the action's `verdict.py`; to pick up reporter
-fixes, re-copy the `azure/` files.
+fixes, re-run the vendoring commands above.
 
 The hosted report and the public gallery stay GitHub-only: the LabWired API
 authenticates uploads with a GitHub OIDC token, which Azure DevOps cannot
