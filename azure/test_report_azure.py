@@ -376,6 +376,129 @@ class PrThreadTests(AdoTestCase):
         self.assertEqual(calls, ["GET", "POST"])
 
 
+class UploadTests(AdoTestCase):
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def env_for_azure(self):
+        self.env.update(
+            {
+                "SYSTEM_COLLECTIONURI": "https://dev.azure.com/acme/",
+                "SYSTEM_TEAMPROJECT": "Firmware Lab",
+                "BUILD_BUILDID": "42",
+                "SYSTEM_ACCESSTOKEN": "build-token",
+            }
+        )
+
+    def test_upload_sends_identity_headers_and_evidence(self):
+        self.env_for_azure()
+        self.write_result("pass")
+        sent = {}
+
+        def fake_urlopen(request, timeout):
+            sent["url"] = request.full_url
+            sent["method"] = request.method
+            sent["headers"] = {k.lower(): v for k, v in dict(request.header_items()).items()}
+            sent["body"] = json.loads(request.data.decode("utf-8"))
+            report = "https://app.labwired.com/ci/run/acme/Firmware-Lab__my-repo/" + "b" * 40
+            return self.Response(json.dumps({"report_url": report}).encode("utf-8"))
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertEqual(sent["url"], "https://api.labwired.com/v1/ci/runs")
+        self.assertEqual(sent["method"], "POST")
+        self.assertEqual(sent["headers"]["x-labwired-ci-provider"], "azure")
+        self.assertEqual(sent["headers"]["x-labwired-azure-org"], "acme")
+        self.assertEqual(sent["headers"]["x-labwired-azure-project"], "Firmware Lab")
+        self.assertEqual(sent["headers"]["x-labwired-azure-build-id"], "42")
+        self.assertEqual(sent["headers"]["authorization"], "Bearer build-token")
+        self.assertEqual(sent["body"]["status"], "pass")
+        self.assertEqual(sent["body"]["tests_passed"], 2)
+        self.assertIn("bundle_base64", sent["body"])
+        report = "https://app.labwired.com/ci/run/acme/Firmware-Lab__my-repo/" + "b" * 40
+        summary = Path(self.out, "labwired-summary.md").read_text(encoding="utf-8")
+        self.assertIn(f"[Full report]({report})", summary)
+
+    def test_unproven_uploads_the_verdict_not_the_cli_status(self):
+        system = self.write_system(COVERAGE)
+        self.env["LABWIRED_SYSTEM"] = system
+        self.env_for_azure()
+        self.write_result("pass", system=system)
+        sent = {}
+
+        def fake_urlopen(request, timeout):
+            sent.update(json.loads(request.data.decode("utf-8")))
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertEqual(sent["status"], "unproven")
+
+    def test_gallery_false_sends_metadata_only(self):
+        self.env_for_azure()
+        self.env["LABWIRED_GALLERY"] = "false"
+        self.write_result("pass")
+        sent = {}
+
+        def fake_urlopen(request, timeout):
+            sent.update(json.loads(request.data.decode("utf-8")))
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertNotIn("bundle_base64", sent)
+        self.assertFalse(sent["gallery"])
+
+    def test_no_azure_environment_means_no_upload(self):
+        self.write_result("pass")
+
+        def explode(request, timeout):
+            raise AssertionError("no request expected")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", explode):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+
+    def test_missing_token_warns_and_skips(self):
+        self.env.update(
+            {
+                "SYSTEM_COLLECTIONURI": "https://dev.azure.com/acme/",
+                "SYSTEM_TEAMPROJECT": "Firmware Lab",
+                "BUILD_BUILDID": "42",
+            }
+        )
+        self.write_result("pass")
+
+        def explode(request, timeout):
+            raise AssertionError("no request expected")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", explode):
+            code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("type=warning", out)
+        self.assertIn("System.AccessToken", out)
+
+    def test_upload_failure_is_a_warning_and_exit_zero(self):
+        self.env_for_azure()
+        self.write_result("pass")
+
+        def fail(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fail):
+            code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("type=warning", out)
+        self.assertIn("403", out)
+
+
 try:
     import yaml  # noqa: F401
 

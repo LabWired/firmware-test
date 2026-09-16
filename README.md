@@ -94,15 +94,18 @@ agent and the run reports natively:
 | Build tag | `labwired-pass` / `labwired-fail` / `labwired-error` / `labwired-unproven` | nothing |
 | Pull request | one upserted thread comment | `System.AccessToken` mapped (the example does) and the build service identity granted **Contribute to pull requests** |
 | Artifacts | `result.json`, `uart.log`, `junit.xml`, `labwired-summary.md` | nothing |
+| Hosted report | linked from the summary, listed in the [gallery](https://app.labwired.com/ci) | `System.AccessToken` mapped (the example does) and a **public** Azure DevOps project |
 
 The build fails on `fail` and `error`, and on `unproven` unless
 `allow_unproven: true` — the same verdicts and exit code 4 as the GitHub
 action. The reporter reuses the action's `verdict.py`; to pick up reporter
 fixes, re-run the vendoring commands above.
 
-The hosted report and the public gallery stay GitHub-only: the LabWired API
-authenticates uploads with a GitHub OIDC token, which Azure DevOps cannot
-mint. Everything in the table above is produced by the pipeline itself.
+The hosted report is authenticated by the pipeline's own `System.AccessToken`:
+LabWired asks Azure DevOps for the build record, so no secret is created or
+stored. Private projects are rejected server-side before the run body is read.
+Set `gallery: false` to keep the run unlisted and send run metadata only — no
+firmware bundle leaves the agent.
 
 ## Privacy
 

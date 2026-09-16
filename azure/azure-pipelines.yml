@@ -6,15 +6,18 @@
 #
 # Where results land:
 #   Tests tab      assertions, via PublishTestResults@2 on the CLI's junit.xml
-#   Build summary  the same Markdown the GitHub action posts
+#   Build summary  the same Markdown the GitHub action posts, plus a link to
+#                  the hosted report at app.labwired.com when the upload runs
 #   Build tag      labwired-pass | labwired-fail | labwired-error | labwired-unproven
 #   Pull request   one upserted thread comment (Azure Repos pull requests)
 #   Artifacts      result.json, uart.log, junit.xml, labwired-summary.md
 #
 # The build fails on fail/error, and on unproven unless allow_unproven is true.
-# The hosted report and gallery at app.labwired.com are GitHub-only: the
-# LabWired API authenticates runs with a GitHub OIDC token, which Azure DevOps
-# cannot mint. See README.md.
+# The hosted report is uploaded when the pipeline is running in Azure DevOps
+# with its System.AccessToken available (the step below maps it) and the
+# project is public; private projects are rejected server-side. Set
+# `gallery: false` to keep the run out of the public gallery and send run
+# metadata only, with no firmware bundle.
 
 trigger:
   - main
@@ -30,6 +33,7 @@ variables:
   version: v0.23.0
   allow_unproven: 'false'
   comment: 'true'
+  gallery: 'true'
   output_dir: $(Build.ArtifactStagingDirectory)/labwired
 
 steps:
@@ -98,6 +102,8 @@ steps:
       LABWIRED_SCRIPT: $(script)
       LABWIRED_ALLOW_UNPROVEN: $(allow_unproven)
       LABWIRED_PR_COMMENT: $(comment)
+      LABWIRED_GALLERY: $(gallery)
+      LABWIRED_CLI_VERSION: $(version)
 
   - task: PublishTestResults@2
     displayName: Publish LabWired results
