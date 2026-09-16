@@ -69,6 +69,30 @@ the simulator's exit code, and every report still says `unproven`.
 A manifest with no coverage record, which includes every hand-written one, is
 judged exactly as before.
 
+## Azure DevOps Pipelines
+
+Copy the `azure/` directory (four files: the pipeline, `report_azure.py` and
+its two siblings `verdict.py` and `comment.py`) into your repository, set
+`script`, and push. The same pinned CLI release runs on the agent and the run
+reports natively:
+
+| Surface | Where | Needs |
+| --- | --- | --- |
+| Assertions | Tests tab, via `PublishTestResults@2` on the CLI's `junit.xml` | nothing |
+| Build summary | Build summary tab (`##vso[task.uploadsummary]`) | nothing |
+| Build tag | `labwired-pass` / `labwired-fail` / `labwired-error` / `labwired-unproven` | nothing |
+| Pull request | one upserted thread comment | `System.AccessToken` mapped (the example does) and the build service identity granted **Contribute to pull requests** |
+| Artifacts | `result.json`, `uart.log`, `junit.xml`, `labwired-summary.md` | nothing |
+
+The build fails on `fail` and `error`, and on `unproven` unless
+`allow_unproven: true` — the same verdicts and exit code 4 as the GitHub
+action. The reporter reuses the action's `verdict.py`; to pick up reporter
+fixes, re-copy the `azure/` files.
+
+The hosted report and the public gallery stay GitHub-only: the LabWired API
+authenticates uploads with a GitHub OIDC token, which Azure DevOps cannot
+mint. Everything in the table above is produced by the pipeline itself.
+
 ## Privacy
 
 Private repositories are never uploaded: the action checks
