@@ -1,0 +1,126 @@
+# LabWired firmware simulation on Azure DevOps Pipelines.
+#
+# Copy the azure/ directory into your firmware repository, point `script` at
+# your LabWired test script, and push. The pipeline installs a pinned LabWired
+# CLI release on the agent - no hardware, no toolchain, no self-hosted runner.
+#
+# Where results land:
+#   Tests tab      assertions, via PublishTestResults@2 on the CLI's junit.xml
+#   Build summary  the same Markdown the GitHub action posts
+#   Build tag      labwired-pass | labwired-fail | labwired-error | labwired-unproven
+#   Pull request   one upserted thread comment (Azure Repos pull requests)
+#   Artifacts      result.json, uart.log, junit.xml, labwired-summary.md
+#
+# The build fails on fail/error, and on unproven unless allow_unproven is true.
+# The hosted report and gallery at app.labwired.com are GitHub-only: the
+# LabWired API authenticates runs with a GitHub OIDC token, which Azure DevOps
+# cannot mint. See README.md.
+
+trigger:
+  - main
+
+pr:
+  - main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  script: tests/firmware-test.yaml
+  version: v0.23.0
+  allow_unproven: 'false'
+  comment: 'true'
+  output_dir: $(Build.ArtifactStagingDirectory)/labwired
+
+steps:
+  - checkout: self
+
+  # Build your firmware here, or commit the ELF the script points at.
+  # - script: cargo build --release --target thumbv7m-none-eabi
+  #   displayName: Build firmware
+
+  - script: |
+      set -euo pipefail
+      version="$LABWIRED_VERSION"
+      if ! echo "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "##vso[task.logissue type=error]The version variable must be an immutable LabWired CLI release tag like v0.23.0."
+        exit 1
+      fi
+
+      case "$AGENT_OS/$AGENT_OSARCHITECTURE" in
+        Linux/X64)      platform=linux-x86_64 ;;
+        Linux/ARM64)    platform=linux-aarch64 ;;
+        Darwin/X64)     platform=darwin-x86_64 ;;
+        Darwin/ARM64)   platform=darwin-aarch64 ;;
+        Windows_NT/X64) platform=windows-x86_64 ;;
+        *)
+          echo "##vso[task.logissue type=error]Unsupported agent platform: $AGENT_OS/$AGENT_OSARCHITECTURE."
+          exit 1
+          ;;
+      esac
+
+      archive="$AGENT_TEMPDIRECTORY/labwired-$version-$platform.tar.gz"
+      bin_dir="$AGENT_TEMPDIRECTORY/labwired-bin/$version/$platform"
+      mkdir -p "$bin_dir"
+      curl --fail --location --retry 3 --retry-delay 2 --output "$archive" \
+        "https://github.com/w1ne/labwired-core/releases/download/$version/labwired-$version-$platform.tar.gz"
+      tar -xzf "$archive" -C "$bin_dir"
+      chmod +x "$bin_dir/labwired" 2>/dev/null || true
+      echo "##vso[task.prependpath]$bin_dir"
+    displayName: Install LabWired CLI
+    env:
+      LABWIRED_VERSION: $(version)
+
+  - script: |
+      set -uo pipefail
+      out="$(output_dir)"
+      mkdir -p "$out"
+      set +e
+      labwired test \
+        --script "$(script)" \
+        --output-dir "$out" \
+        --junit "$out/junit.xml" \
+        --no-uart-stdout
+      code=$?
+      set -e
+      # Evidence, not the gate: the verdict step decides after reporting and
+      # publishing, so results survive a failing run.
+      echo "$code" > "$out/exit_code"
+      exit 0
+    displayName: Run LabWired tests
+
+  - script: python3 azure/report_azure.py
+    displayName: Report to Azure DevOps
+    condition: always()
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      LABWIRED_OUTPUT_DIR: $(output_dir)
+      LABWIRED_SCRIPT: $(script)
+      LABWIRED_ALLOW_UNPROVEN: $(allow_unproven)
+      LABWIRED_PR_COMMENT: $(comment)
+
+  - task: PublishTestResults@2
+    displayName: Publish LabWired results
+    condition: always()
+    inputs:
+      testResultsFormat: JUnit
+      testResultsFiles: '**/junit.xml'
+      searchFolder: $(output_dir)
+      failTaskOnFailedTests: false
+      failTaskOnMissingResultsFile: false
+      testRunTitle: LabWired
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish LabWired artifacts
+    condition: always()
+    inputs:
+      targetPath: $(output_dir)
+      artifact: labwired
+
+  - script: python3 azure/report_azure.py --verdict
+    displayName: Fail the build if LabWired failed or is unproven
+    condition: succeededOrFailed()
+    env:
+      LABWIRED_OUTPUT_DIR: $(output_dir)
+      LABWIRED_SCRIPT: $(script)
+      LABWIRED_ALLOW_UNPROVEN: $(allow_unproven)

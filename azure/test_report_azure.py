@@ -338,5 +338,42 @@ class PrThreadTests(AdoTestCase):
         self.assertIn("\\`x\\`", content)
 
 
+try:
+    import yaml  # noqa: F401
+
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
+
+
+@unittest.skipUnless(HAVE_YAML, "PyYAML not installed")
+class PipelineYamlTests(unittest.TestCase):
+    def test_pipeline_has_the_required_shape(self):
+        import yaml
+
+        doc = yaml.safe_load((HERE / "azure-pipelines.yml").read_text(encoding="utf-8"))
+        steps = doc["steps"]
+        scripts = [s.get("script", "") for s in steps if "script" in s]
+        tasks = [s.get("task", "") for s in steps if "task" in s]
+        for fragment in ("labwired test", "report_azure.py", "--verdict"):
+            self.assertTrue(any(fragment in s for s in scripts), fragment)
+        self.assertIn("PublishTestResults@2", tasks)
+        self.assertIn("PublishPipelineArtifact@1", tasks)
+        self.assertEqual(doc["variables"]["allow_unproven"], "false")
+
+    def test_every_always_step_has_a_condition(self):
+        import yaml
+
+        doc = yaml.safe_load((HERE / "azure-pipelines.yml").read_text(encoding="utf-8"))
+        publishing = [
+            s
+            for s in doc["steps"]
+            if s.get("displayName", "").startswith(("Report", "Publish"))
+        ]
+        self.assertEqual(len(publishing), 3)
+        for step in publishing:
+            self.assertEqual(step.get("condition"), "always()")
+
+
 if __name__ == "__main__":
     unittest.main()
