@@ -132,12 +132,94 @@ def annotate(run_verdict):
         )
 
 
+def comment_context():
+    """Everything the PR thread API needs, or None when this is not a pull
+    request, commenting is off, or the access token was not mapped in."""
+    if os.environ.get("LABWIRED_PR_COMMENT", "true").strip().lower() == "false":
+        return None
+    pr_id = os.environ.get("SYSTEM_PULLREQUEST_PULLREQUESTID", "").strip()
+    token = os.environ.get("SYSTEM_ACCESSTOKEN", "").strip()
+    repo_id = os.environ.get("BUILD_REPOSITORY_ID", "").strip()
+    collection = os.environ.get("SYSTEM_COLLECTIONURI", "").strip().rstrip("/")
+    project = os.environ.get("SYSTEM_TEAMPROJECT", "").strip()
+    if not pr_id.isdigit() or not token or not repo_id or not collection or not project:
+        return None
+    base = (
+        f"{collection}/{urllib.parse.quote(project, safe='')}/_apis/git/repositories/"
+        f"{urllib.parse.quote(repo_id, safe='')}/pullRequests/{pr_id}"
+    )
+    return {"token": token, "base": base}
+
+
+def ado_api(method, url, token, payload=None):
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8") if payload is not None else None,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "labwired-firmware-test/report_azure.py",
+        },
+        method=method,
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        body = response.read().decode("utf-8")
+    return json.loads(body) if body.strip() else {}
+
+
+def existing_comment(threads):
+    """(thread_id, comment_id) of the comment carrying our marker, or None."""
+    if not isinstance(threads, dict):
+        return None
+    for thread in threads.get("value") or []:
+        if not isinstance(thread, dict):
+            continue
+        for entry in thread.get("comments") or []:
+            if isinstance(entry, dict) and MARKER in (entry.get("content") or ""):
+                return thread.get("id"), entry.get("id")
+    return None
+
+
+def upsert_thread(body, context):
+    threads_url = f"{context['base']}/threads?api-version={API_VERSION}"
+    found = existing_comment(ado_api("GET", threads_url, context["token"]))
+    if found and found[0] is not None and found[1] is not None:
+        thread_id, comment_id = found
+        ado_api(
+            "PATCH",
+            f"{context['base']}/threads/{thread_id}/comments/{comment_id}?api-version={API_VERSION}",
+            context["token"],
+            {"content": body},
+        )
+    else:
+        ado_api(
+            "POST",
+            threads_url,
+            context["token"],
+            {
+                "comments": [{"parentCommentId": 0, "content": body, "commentType": 1}],
+                "status": 1,
+            },
+        )
+
+
+def post_pr_comment(body):
+    context = comment_context()
+    if not context:
+        return
+    try:
+        upsert_thread(body, context)
+    except (urllib.error.URLError, urllib.error.HTTPError, ValueError, TimeoutError) as exc:
+        warn(f"Could not post the LabWired PR comment ({exc}).")
+
+
 def report_main():
     result = read_result()
     run_verdict = verdict.verdict_from_env(result)
-    write_summary(result, run_verdict)
+    body = write_summary(result, run_verdict)
     add_build_tag(comment.display_status(result, run_verdict))
     annotate(run_verdict)
+    post_pr_comment(body)
     return 0
 
 

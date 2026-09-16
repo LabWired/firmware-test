@@ -214,5 +214,129 @@ class ReportModeTests(AdoTestCase):
         self.assertIn("LED ON", summary)
 
 
+class PrThreadTests(AdoTestCase):
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def env_for_pr(self):
+        self.env.update(
+            {
+                "SYSTEM_PULLREQUEST_PULLREQUESTID": "42",
+                "SYSTEM_ACCESSTOKEN": "secret",
+                "BUILD_REPOSITORY_ID": "repo-guid",
+                "SYSTEM_COLLECTIONURI": "https://dev.azure.com/acme/",
+                "SYSTEM_TEAMPROJECT": "proj",
+                "LABWIRED_PR_COMMENT": "true",
+            }
+        )
+
+    def test_first_run_creates_a_thread(self):
+        self.env_for_pr()
+        self.write_result("pass")
+        calls = []
+
+        def fake_urlopen(request, timeout):
+            calls.append((request.method, request.full_url, request.data))
+            if request.method == "GET":
+                return self.Response(b'{"count":0,"value":[]}')
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertEqual([c[0] for c in calls], ["GET", "POST"])
+        self.assertIn("/pullRequests/42/threads?api-version=7.1", calls[1][1])
+        payload = json.loads(calls[1][2].decode("utf-8"))
+        self.assertIn(comment.MARKER, payload["comments"][0]["content"])
+        self.assertEqual(payload["status"], 1)
+
+    def test_rerun_edits_the_existing_comment(self):
+        self.env_for_pr()
+        self.write_result("pass")
+        calls = []
+
+        def fake_urlopen(request, timeout):
+            calls.append((request.method, request.full_url, request.data))
+            if request.method == "GET":
+                body = {
+                    "count": 1,
+                    "value": [{"id": 7, "comments": [{"id": 3, "content": comment.MARKER + "\nold"}]}],
+                }
+                return self.Response(json.dumps(body).encode("utf-8"))
+            return self.Response(b"{}")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertEqual([c[0] for c in calls], ["GET", "PATCH"])
+        self.assertIn("/threads/7/comments/3?api-version=7.1", calls[1][1])
+        self.assertEqual(json.loads(calls[1][2].decode("utf-8"))["content"].count(comment.MARKER), 1)
+
+    def test_no_pr_id_means_no_network(self):
+        self.write_result("pass")
+
+        def explode(request, timeout):
+            raise AssertionError("no request expected")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", explode):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+
+    def test_comment_false_skips_the_thread(self):
+        self.env_for_pr()
+        self.env["LABWIRED_PR_COMMENT"] = "false"
+        self.write_result("pass")
+
+        def explode(request, timeout):
+            raise AssertionError("no request expected")
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", explode):
+            code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+
+    def test_api_failure_is_a_warning_and_exit_zero(self):
+        self.env_for_pr()
+        self.write_result("pass")
+
+        def fail(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", {}, None)
+
+        with mock.patch.object(report_azure.urllib.request, "urlopen", fail):
+            code, out = self.run_main([])
+        self.assertEqual(code, 0)
+        self.assertIn("type=warning", out)
+        self.assertIn("403", out)
+
+    def test_hostile_design_text_cannot_inject_markdown(self):
+        self.env_for_pr()
+        self.write_result("pass")
+        sent = {}
+
+        def fake_urlopen(request, timeout):
+            if request.method == "GET":
+                return self.Response(b'{"count":0,"value":[]}')
+            sent.update(json.loads(request.data.decode("utf-8")))
+            return self.Response(b"{}")
+
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "system.yaml")
+            coverage = {
+                **COVERAGE,
+                "design_only": [{"ref": "| U9 |", "value": "<b>", "reason": "`x`"}],
+            }
+            Path(path).write_text(manifest(coverage), encoding="utf-8")
+            self.env["LABWIRED_SYSTEM"] = path
+            with mock.patch.object(report_azure.urllib.request, "urlopen", fake_urlopen):
+                code, _ = self.run_main([])
+        self.assertEqual(code, 0)
+        content = sent["comments"][0]["content"]
+        self.assertIn("\\| U9 \\|", content)
+        self.assertIn("\\`x\\`", content)
+
+
 if __name__ == "__main__":
     unittest.main()
