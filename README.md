@@ -69,6 +69,44 @@ the simulator's exit code, and every report still says `unproven`.
 A manifest with no coverage record, which includes every hand-written one, is
 judged exactly as before.
 
+## Azure DevOps Pipelines
+
+Vendor the reporter into an `azure/` directory in your repository — the
+pipeline, `report_azure.py`, and the two modules it shares with the GitHub
+action (`verdict.py` and `comment.py`):
+
+```bash
+mkdir -p azure
+base=https://raw.githubusercontent.com/LabWired/firmware-test/main
+curl -fsSL -o azure/azure-pipelines.yml "$base/azure/azure-pipelines.yml"
+curl -fsSL -o azure/report_azure.py "$base/azure/report_azure.py"
+curl -fsSL -o azure/verdict.py "$base/verdict.py"
+curl -fsSL -o azure/comment.py "$base/comment.py"
+```
+
+Set `script` in the pipeline and push. The same pinned CLI release runs on the
+agent and the run reports natively:
+
+| Surface | Where | Needs |
+| --- | --- | --- |
+| Assertions | Tests tab, via `PublishTestResults@2` on the CLI's `junit.xml` | nothing |
+| Build summary | Build summary tab (`##vso[task.uploadsummary]`) | nothing |
+| Build tag | `labwired-pass` / `labwired-fail` / `labwired-error` / `labwired-unproven` | nothing |
+| Pull request | one upserted thread comment | `System.AccessToken` mapped (the example does) and the build service identity granted **Contribute to pull requests** |
+| Artifacts | `result.json`, `uart.log`, `junit.xml`, `labwired-summary.md` | nothing |
+| Hosted report | linked from the summary, listed in the [gallery](https://app.labwired.com/ci) | `System.AccessToken` mapped (the example does) and a **public** Azure DevOps project |
+
+The build fails on `fail` and `error`, and on `unproven` unless
+`allow_unproven: true` — the same verdicts and exit code 4 as the GitHub
+action. The reporter reuses the action's `verdict.py`; to pick up reporter
+fixes, re-run the vendoring commands above.
+
+The hosted report is authenticated by the pipeline's own `System.AccessToken`:
+LabWired asks Azure DevOps for the build record, so no secret is created or
+stored. Private projects are rejected server-side before the run body is read.
+Set `gallery: false` to keep the run unlisted and send run metadata only — no
+firmware bundle leaves the agent.
+
 ## Privacy
 
 Private repositories are never uploaded: the action checks
